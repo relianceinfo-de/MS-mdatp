@@ -1,0 +1,152 @@
+---
+- name: Install Dependencies Separately
+  hosts: testserver
+  become: yes
+  remote_user: testadmin
+
+  tasks:
+    - name: Add Microsoft apt repository for MDATP
+      apt_repository:
+        repo: "deb [arch=arm64,armhf,amd64] https://packages.microsoft.com/ubuntu/20.04/prod focal main"
+        update_cache: yes
+        state: present
+        filename: "microsoft-prod"
+      when: ansible_os_family == "Debian"
+
+    - name: Add Microsoft APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://packages.microsoft.com/debian/10/prod buster main
+        update_cache: yes
+        state: present
+      when: ansible_os_family == "Debian"
+    - name: Update apt package cache (for Debian/Ubuntu)
+      apt:
+        update_cache: yes
+      when: ansible_os_family == 'Debian'
+      
+    - name: Ensure Python is installed
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python3)
+      changed_when: false
+
+    - name: Install python-apt or python3-apt
+      apt:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - python-apt
+        - python3-apt
+      ignore_errors: yes
+
+    - name: Install apt-transport-https
+      apt:
+        name: apt-transport-https
+        state: present
+
+    - name: Install curl
+      apt:
+        name: curl
+        state: present
+
+    - name: Install libc6
+      apt:
+        name: libc6
+        state: present
+
+    - name: Install uuid-runtime
+      apt:
+        name: uuid-runtime
+        state: present
+
+    - name: Install auditd
+      apt:
+        name: auditd
+        state: present
+
+    - name: Install libnetfilter-queue1
+      apt:
+        name: libnetfilter-queue1
+        state: present
+
+    - name: Install libglib2.0-0
+      apt:
+        name: libglib2.0-0
+        state: present
+
+    - name: Install unzip
+      apt:
+        name: unzip
+        state: present
+
+    - name: Install git
+      apt:
+        name: git
+        state: present
+
+    - name: Download mde-netfilter .deb package
+      get_url:
+        url: "https://packages.microsoft.com/ubuntu/20.04/prod/pool/main/m/mde-netfilter/mde-netfilter_100.69.62.amd64.deb"  # Replace with the actual URL
+        dest: "/tmp/mde-netfilter-latest.deb"
+
+    - name: Install mde-netfilter .deb package
+      apt:
+        deb: "/tmp/mde-netfilter-latest.deb"
+
+    - name: Create MDATP directories
+      file:
+        path: /etc/opt/microsoft/mdatp/
+        recurse: true
+        state: directory
+        mode: 0755
+        owner: root
+        group: root
+
+    - name: Register mdatp_onboard.json
+      stat:
+        path: /etc/opt/microsoft/mdatp/mdatp_onboard.json
+      register: mdatp_onboard
+
+    # - name: Copy WindowsDefenderATPOnboardingPackage.zip to remote host
+    #   copy:
+    #     src: ~/WindowsDefenderATPOnboardingPackage.zip
+    #     dest: /tmp/WindowsDefenderATPOnboardingPackage.zip
+    #   when: not mdatp_onboard.stat.exists
+
+#EXTRA: download the repo containing the zip file
+    - name: Clone the repository into the user's home directory
+      git:
+        repo: 'https://github.com/tewogbadeaa/ms-mdatp.git'
+        dest: '/ms-mdatp'
+        update: yes
+        version: main
+      # become_user: yes
+
+#END EXTRA
+
+    - name: Extract WindowsDefenderATPOnboardingPackage.zip into /etc/opt/microsoft/mdatp
+      unarchive:
+        src: '/ms-mdatp/WindowsDefenderATPOnboardingPackage.zip'
+        dest: '/etc/opt/microsoft/mdatp'
+        owner: '{{ ansible_user }}'
+        group: '{{ ansible_user }}'
+        remote_src: yes
+      when: not mdatp_onboard.stat.exists
+
+    # - name: Change ownership of MDATP directories to ansible
+    #   file:
+    #     path: /etc/opt/microsoft/mdatp/
+    #     recurse: true
+    #     state: directory
+    #     mode: '0755'
+    #     owner: ansible
+
+    # - name: Add Microsoft APT key
+    #   apt_key:
+    #     url: https://packages.microsoft.com/keys/microsoft.asc
+    #     state: present
+    #   when: ansible_os_family == "Debian"
+
+    - name: Install mdatp
+      apt:
+        name: mdatp
+        state: present
+      when: ansible_os_family == "Debian"

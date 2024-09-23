@@ -1,0 +1,11 @@
+[windows_server]
+
+
+[windows:vars]
+ansible_user=sradmin
+ansible_password=YPqiRrb5QBVW
+ansible_port=22
+ansible_connection=ssh
+ansible_shell_type=cmd
+
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no'

@@ -1,0 +1,65 @@
+---
+- name: Install Dependencies on Windows
+  hosts: windows_servers
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Install Chocolatey
+      win_chocolatey:
+        name: chocolatey
+        state: present
+      become: yes
+
+    - name: Install Dependencies using Chocolatey
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - python3
+        - curl
+        - git
+        - unzip
+        - auditd # Note: 'auditd' might not have a direct equivalent in Chocolatey.
+      ignore_errors: yes
+
+    - name: Download mde-netfilter .msi package (or equivalent Windows package)
+      win_get_url:
+        url: "https://packages.microsoft.com/rhel/9/prod/Packages/m/mde-netfilter_100.69.62.x86_64.rpm"
+        dest: "C:\\Temp\\mde-netfilter-latest.msi"
+      when: ansible_os_family == "Windows"
+
+    - name: Install mde-netfilter .msi package
+      win_package:
+        path: "C:\\Temp\\mde-netfilter-latest.msi"
+        state: present
+      when: ansible_os_family == "Windows"
+
+    - name: Create MDATP directories
+      win_file:
+        path: "C:\\ProgramData\\Microsoft\\Windows Defender Advanced Threat Protection\\"
+        state: directory
+
+    - name: Register mdatp_onboard.json
+      win_stat:
+        path: "C:\\ProgramData\\Microsoft\\Windows Defender Advanced Threat Protection\\mdatp_onboard.json"
+      register: mdatp_onboard
+
+    - name: Clone the repository into the user's home directory
+      win_git:
+        repo: 'https://github.com/tewogbadeaa/ms-mdatp.git'
+        dest: 'C:\\Users\\{{ ansible_user }}\\ms-mdatp'
+        update: yes
+        version: main
+      become_user: yes
+
+    - name: Extract WindowsDefenderATPOnboardingPackage.zip into MDATP directory
+      win_unzip:
+        src: 'C:\\Users\\{{ ansible_user }}\\ms-mdatp\\WindowsDefenderATPOnboardingPackage.zip'
+        dest: 'C:\\ProgramData\\Microsoft\\Windows Defender Advanced Threat Protection'
+      when: not mdatp_onboard.stat.exists
+
+    - name: Ensure the Microsoft Defender for Endpoint service is running
+      win_service:
+        name: "Sense"
+        state: started
+        start_mode: auto

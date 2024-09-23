@@ -1,0 +1,134 @@
+---
+- name: Install Dependencies Separately
+  hosts: servers
+  become: yes
+  remote_user: ec2-user
+
+  tasks:
+    - name: Add Microsoft DNF/YUM key
+      rpm_key:
+        state: present
+        key: https://packages.microsoft.com/keys/microsoft.asc
+      when: ansible_os_family == "RedHat"
+      become: yes
+
+    - name: Add Microsoft yum repository for Microsoft Defender
+      yum_repository:
+        name: microsoft-prod
+        description: Microsoft Yum Repository
+        baseurl: https://packages.microsoft.com/rhel/9.0/prod/
+        gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+        enabled: yes
+        gpgcheck: yes
+
+    - name: Clean YUM cache
+      command: yum clean all
+      become: yes
+
+    - name: Update yum package cache (for RedHat/CentOS/Fedora)
+      yum:
+        name: '*'
+        state: latest
+        update_cache: yes
+      when: ansible_os_family == 'RedHat'
+
+    - name: Ensure Python is installed
+      raw: test -e /usr/bin/python || (yum -y update && yum install -y python3)
+      changed_when: false
+
+    - name: Install python3 packages
+      yum:
+        name: "{{ item }}"
+        state: present
+      with_items:
+        - python3-dnf
+        - python3-requests
+      ignore_errors: yes
+
+    - name: Install curl
+      yum:
+        name: curl
+        state: present
+
+    - name: Install auditd
+      yum:
+        name: audit
+        state: present
+
+    - name: Install libnetfilter
+      yum:
+        name: libnetfilter_queue
+        state: present
+
+    - name: Install glib2
+      yum:
+        name: glib2
+        state: present
+
+    - name: Install unzip
+      yum:
+        name: unzip
+        state: present
+
+    - name: Install git
+      yum:
+        name: git
+        state: present
+
+    - name: Download mde-netfilter .rpm package
+      get_url:
+        url: "https://packages.microsoft.com/rhel/9/prod/Packages/m/mde-netfilter_100.69.62.x86_64.rpm"  # Replace with the actual URL
+        dest: "/tmp/mde-netfilter-latest.rpm"
+
+    - name: Install mde-netfilter .rpm package
+      yum:
+        name: /tmp/mde-netfilter-latest.rpm
+        state: present
+
+    #                                             ###### tasks for onboarding_setup#######
+
+    - name: Create MDATP directories
+      file:
+        path: /etc/opt/microsoft/mdatp/
+        recurse: true
+        state: directory
+        mode: 0755
+        owner: root
+        group: root
+
+    - name: Register mdatp_onboard.json
+      stat:
+        path: /etc/opt/microsoft/mdatp/mdatp_onboard.json
+      register: mdatp_onboard
+
+#EXTRA: download the repo containing the zip file
+    - name: Clone the repository into the user's home directory
+      git:
+        repo: 'https://github.com/tewogbadeaa/ms-mdatp.git'
+        dest: '/ms-mdatp'
+        update: yes
+        version: main
+      # become_user: yes
+
+#END EXTRA
+
+    - name: Extract WindowsDefenderATPOnboardingPackage.zip into /etc/opt/microsoft/mdatp
+      unarchive:
+        src: '/ms-mdatp/WindowsDefenderATPOnboardingPackage.zip'
+        dest: '/etc/opt/microsoft/mdatp'
+        owner: '{{ ansible_user }}'
+        group: '{{ ansible_user }}'
+        remote_src: yes
+      when: not mdatp_onboard.stat.exists
+
+#Install mdatp
+    - name: Install Microsoft Defender for Endpoint
+      yum:
+        name: mdatp
+        state: present
+
+    - name: Ensure the service is running
+      service:
+        name: mdatp
+        state: started
+        enabled: yes
